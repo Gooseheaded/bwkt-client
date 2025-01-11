@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BWKT Client
 // @namespace    http://tampermonkey.net/
-// @version      2024.12.31
+// @version      2025.01.11
 // @description  Loads and displays custom translated subtitles for Brood War videos on YouTube.
 // @author       Gooseheaded
 // @match        https://www.youtube.com/watch*
@@ -57,6 +57,7 @@
                 }
                 subtitleURL = text;
                 subtitleMissing = false;
+                if (debugging) console.log(`Displaying subtitles from ${subtitleURL}`);
                 startSubtitleLogic();
             })
             .catch((error) => {
@@ -169,21 +170,26 @@
         const cues = [];
         const lines = srtText.split(/\r?\n/);
         let currentCue = null;
+        if (debugging) console.log('(parseSRT) Just before lines.forEach');
 
         lines.forEach((line) => {
+            line = line.trim();
+            if (debugging) console.log(`(parseSRT) Processing line: "${line}"`);
             if (line.match(/^\d+$/)) {
+                if (debugging) console.log('(parseSRT) Cue line: ', line);
                 // Start of a new cue
                 if (currentCue) {
                     cues.push(currentCue);
                 }
                 currentCue = { start: 0, end: 0, text: '' };
             } else if (line.includes('-->')) {
-                if (debugging) console.log('(parseSRT) Line is: ', line);
+                if (debugging) console.log('(parseSRT) Timestamp line: ', line);
                 const [start, end] = line.split(' --> ').map(parseTimestamp);
                 if (debugging) console.log('(parseSRT) Start and end are: ', start, end);
                 currentCue.start = start;
                 currentCue.end = end;
             } else if (line.trim()) {
+                if (debugging) console.log('(parseSRT) Text line: ', line);
                 currentCue.text += line + '\n';
             }
         });
