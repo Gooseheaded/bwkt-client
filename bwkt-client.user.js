@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         BWKT Client
 // @namespace    http://tampermonkey.net/
-// @version      2025.01.11
-// @description  Loads and displays custom translated subtitles for Brood War videos on YouTube.
+// @version      2025.02.25
+// @description  Loads and displays custom translated subtitles for Brood War videos on YouTube. Also allows uploading your own subtitle file.
 // @author       Gooseheaded
 // @match        https://www.youtube.com/watch*
 // @grant        none
@@ -17,7 +17,7 @@
     let subtitleURL = '';
     let subtitleMissing = false;
 
-    // Create and insert the "BWKT Subtitles" button
+    // Create and insert the "BWKT Subtitles" button (loads subtitles from the remote service)
     function createButton(parent) {
         const button = document.createElement('button');
         button.textContent = 'BWKT Subtitles';
@@ -40,7 +40,58 @@
         parent.appendChild(button);
     }
 
-    // Initialize subtitle logic
+    // Create and insert the "Upload Subtitles" button (for user-uploaded subtitle files)
+    function createUploadButton(parent) {
+        const button = document.createElement('button');
+        button.textContent = 'Upload Subtitles';
+        button.id = 'upload-subtitles-button';
+        button.style.zIndex = '1000';
+        button.style.padding = '10px 20px';
+        button.style.fontSize = '16px';
+        button.style.backgroundColor = '#28a745';
+        button.style.color = 'white';
+        button.style.border = 'none';
+        button.style.borderRadius = '5px';
+        button.style.cursor = 'pointer';
+        button.style.marginLeft = '10px';
+
+        // Hidden file input to handle the upload
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.srt,.vtt,text/plain';
+        fileInput.style.display = 'none';
+
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const subtitleText = e.target.result;
+                    button.remove(); // Remove the upload button after file selection
+                    // Wait for video elements to be available before displaying subtitles
+                    const waitForPlayer = setInterval(() => {
+                        const video = document.querySelector('video');
+                        const playerContainer = document.querySelector('.html5-video-container');
+                        const videoParent = document.querySelector('#above-the-fold');
+                        if (video && playerContainer && videoParent) {
+                            videoParent.prepend(addCustomSubtitleDisplayFromText(video, videoParent, subtitleText));
+                            clearInterval(waitForPlayer);
+                        }
+                    }, 1000);
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        button.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        parent.appendChild(button);
+        parent.appendChild(fileInput);
+    }
+
+    // Initialize subtitle logic from remote URL
     function initializeSubtitles() {
         fetch(subtitleServiceURL)
             .then((response) => {
@@ -65,7 +116,7 @@
             });
     }
 
-    // Start the main subtitle logic
+    // Start the main subtitle logic from the remote URL
     function startSubtitleLogic() {
         const waitForPlayer = setInterval(() => {
             if (subtitleMissing) {
@@ -87,6 +138,7 @@
         }, 1000);
     }
 
+    // Fetches subtitle file from a URL and displays the subtitles
     function addCustomSubtitleDisplay(video, videoParent, subtitleURL) {
         if (debugging) console.log('(addCustomSubtitleDisplay)');
         // Create a container for the custom subtitles
@@ -117,6 +169,7 @@
                 return response.text();
             })
             .then((text) => {
+                // Determine parser: if text includes WEBVTT, use VTT; otherwise, assume SRT
                 const cues = subtitleURL.endsWith('.srt') || !text.includes('WEBVTT') ? parseSRT(text) : parseVTT(text);
                 if (debugging) console.log('(addCustomSubtitleDisplay) displaying subtitles now.');
                 displaySubtitles(video, cues, subtitleContainer);
@@ -126,6 +179,39 @@
                 console.error('Error loading subtitles:', error);
             });
 
+        return subtitleContainer;
+    }
+
+    // Uses subtitle text from an uploaded file to display subtitles
+    function addCustomSubtitleDisplayFromText(video, videoParent, subtitleText) {
+        if (debugging) console.log('(addCustomSubtitleDisplayFromText)');
+        // Create a container for the custom subtitles
+        const subtitleContainer = document.createElement('div');
+        subtitleContainer.id = 'bwkt-teleprompter';
+        subtitleContainer.style.border = 'solid red 1px';
+        subtitleContainer.style.position = 'relative';
+        subtitleContainer.style.marginTop = '10px';
+        subtitleContainer.style.marginBottom = '10px';
+        subtitleContainer.style.marginLeft = 'auto';
+        subtitleContainer.style.marginRight = 'auto';
+        subtitleContainer.style.height = '64px';
+        subtitleContainer.style.fontSize = '24px';
+        subtitleContainer.style.color = 'white';
+        subtitleContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        subtitleContainer.style.padding = '10px';
+        subtitleContainer.style.textAlign = 'center';
+        subtitleContainer.style.borderRadius = '5px';
+        subtitleContainer.style.maxWidth = '800px';
+
+        try {
+            // Use WEBVTT check to decide whether to parse as VTT or SRT
+            const cues = subtitleText.includes('WEBVTT') ? parseVTT(subtitleText) : parseSRT(subtitleText);
+            if (debugging) console.log('(addCustomSubtitleDisplayFromText) displaying subtitles now.');
+            displaySubtitles(video, cues, subtitleContainer);
+        } catch (error) {
+            subtitleContainer.innerText = 'Error loading subtitles: \n' + error;
+            console.error('Error loading subtitles:', error);
+        }
         return subtitleContainer;
     }
 
@@ -163,7 +249,6 @@
 
         return cues;
     }
-
 
     function parseSRT(srtText) {
         if (debugging) console.log('(parseSRT)');
@@ -235,7 +320,7 @@
         });
     }
 
-    // Add the button to the page
+    // Add both buttons to the page once the container is available
     const waitForInit = setInterval(() => {
         const buttonParent = document.querySelector('div#top-level-buttons-computed');
         if (!buttonParent) {
@@ -243,6 +328,7 @@
         }
 
         createButton(buttonParent);
+        createUploadButton(buttonParent);
         clearInterval(waitForInit);
     }, 1000);
 })();
